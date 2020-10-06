@@ -7,24 +7,44 @@ from typing import Union
 
 from sqlalchemy import Column, DateTime, Integer, TEXT, UniqueConstraint, desc, String
 from sqlalchemy.orm import relationship
+from sqlalchemy.orm.exc import NoResultFound
 
-from core.database import Model, SurrogatePK, Tracked, reference_col
+
+from web_server.database import Model, SurrogatePK, Tracked, reference_col
 from core.defines import SECONDS_PER_HOUR
-from core.utils import get_date_key, get_month, get_week, parse_date
-
-
-class SpanQuery:
-    id: int
+from core.date_utils import get_date_key, get_month, get_week, parse_date
+from web_server.extensions import token_manager, password_hasher
 
 
 class User(Model, SurrogatePK, Tracked):
     __tablename__ = "time_clok_users"
-    name = Column(String(64), unique=True, nullable=False)
+    email = Column(String(128), unique=True, nullable=False)
+    hash = Column(String(128), nullable=False)
     job_id = reference_col("time_clok_jobs", default=None, nullable=True)
     clok_id = reference_col("time_clok", default=None, nullable=True)
     clok = relationship("Clok", lazy="joined")
     job = relationship("Job", lazy="joined")
     last_login = Column(DateTime, onupdate=datetime.now)
+    token = Column(String(256), nullable=True)
+    token_expire = Column(DateTime, nullable=True)
+
+    @classmethod
+    def get_by_email(cls, email: str):
+        try:
+            return cls.query().filter(cls.email == email).one()
+        except NoResultFound:
+            return None
+
+    @property
+    def password(self):
+        raise AttributeError("password is not a readable attribute")
+
+    @password.setter
+    def password(self, password):
+        self.hash = password_hasher.generate_pass_hash(password)
+
+    def verify_password(self, password):
+        return password_hasher.check_pass_hash(self.hash, password)
 
     def set_clok(self, clok: "Clok"):
         self.clok = clok
@@ -40,7 +60,13 @@ class User(Model, SurrogatePK, Tracked):
 
     @property
     def to_dict(self):
-        return dict(job_id=self.job_id, clok_id=self.clok_id, id=self.id)
+        return dict(
+            id=self.id,
+            email=self.email,
+            job_id=self.job_id,
+            clok_id=self.clok_id,
+            last_login=self.last_login,
+        )
 
     def get_by_month_key(self, key: Union[datetime, int, str] = None, all_jobs=False):
         key = get_month() if key is None else key
@@ -118,6 +144,7 @@ class User(Model, SurrogatePK, Tracked):
         if self.clok is None:
             return (
                 Clok.query()
+                .filter(Clok.user_id == self.id)
                 .filter(Clok.job_id == self.job_id)
                 .order_by(desc(Clok.time_in))
                 .first()
@@ -125,32 +152,30 @@ class User(Model, SurrogatePK, Tracked):
         else:
             return self.clok
 
-    def get_most_recent_record(cls):
-        return cls.query().order_by(desc(cls.id)).first()
+    def get_most_recent_record(self):
+        return Clok.query().order_by(desc(Clok.id)).first()
 
-    def clock_in(cls, verbose=False):
-        cls.clock_in_when(datetime.now(), verbose)
-
-    def clock_in_when(self, when: datetime, verbose=False):
-
+    def clock_in_when(self, when: datetime = None, out: datetime = None):
+        when = when if when is not None else datetime.now()
         c = Clok(
             user_id=self.id,
+            job_id=self.job_id,
             time_in=when,
             date_key=get_date_key(when),
             month_key=get_month(when),
             week_key=get_week(when),
         )
+        if out is not None:
+            c.time_out = out
+            c.update_span()
+
         c.save()
         self.set_clok(c)
         return c
 
-    def clock_out(cls, verbose=False):
-        cls.clock_out_when(datetime.now(), verbose)
-
-    def clock_out_when(cls, when: datetime, verbose=False):
-        if verbose:
-            print(f"Clocking you out at {when:%Y-%m-%d %H:%M:%S}")
-        r = cls.get_last_record()
+    def clock_out_when(self, when: datetime = None):
+        when = when if when is not None else datetime.now()
+        r = self.get_last_record()
         r.time_out = when
         r.update_span()
         r.save()
@@ -167,19 +192,46 @@ class User(Model, SurrogatePK, Tracked):
         records = self.get_by_month_key(key, all_jobs=all_jobs)
         return sum([i.time_span for i in records])
 
-    @classmethod
-    def dump(cls):
-        return [i.to_dict for i in cls.query().all()]
+    def get_time_span(self, start: datetime, end: datetime, all_jobs=False):
+        if all_jobs:
+            return (
+                Clok.query()
+                .filter(Clok.user_id == self.id)
+                .filter(Clok.time_in > start)
+                .filter(Clok.time_in < end)
+            )
+
+        else:
+            return (
+                Clok.query()
+                .filter(Clok.user_id == self.id)
+                .filter(Clok.job_id == self.job_id)
+                .filter(Clok.time_in > start)
+                .filter(Clok.time_in < end)
+            )
+
+    def get_span_hours(self, start: datetime, end: datetime, all_jobs=False):
+        return sum([i.time_span for i in self.get_time_span(start, end, all_jobs)])
+
+    def dump(self):
+        return {
+            "user": self.to_dict,
+            "jobs": [i.to_dict for i in Job.query().filter(Job.user_id == self.id)],
+            "cloks": [i.to_dict for i in Clok.query().filter(Clok.user_id == self.id)],
+        }
 
 
 class Job(Model, SurrogatePK):
     __tablename__ = "time_clok_jobs"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="natural"),)
     id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = reference_col("time_clok_users")
     name = Column(String(64), unique=True)
 
-    def __init__(self, name: str, id: int = None):
+    def __init__(self, name: str, user_id: int = None, id: int = None, **kwargs):
         if id is not None:
             self.id = id
+        self.user_id = user_id
         self.name = name.lower()
 
     @staticmethod
@@ -191,14 +243,10 @@ class Job(Model, SurrogatePK):
 
     @property
     def to_dict(self):
-        return dict(id=self.id, name=self.name)
-
-    @classmethod
-    def dump(cls):
-        return [i.to_dict for i in cls.query().all()]
+        return dict(id=self.id, name=self.name, user_id=self.user_id)
 
 
-class Clok(Model, SurrogatePK, SpanQuery):
+class Clok(Model, SurrogatePK):
     __tablename__ = "time_clok"
     __table_args__ = (
         UniqueConstraint("job_id", "user_id", "time_in", "time_out", name="natural"),
@@ -209,17 +257,38 @@ class Clok(Model, SurrogatePK, SpanQuery):
     date_key = Column(Integer, default=get_date_key)
     week_key = Column(Integer, default=get_week)
     month_key = Column(Integer, default=get_month)
-    time_in = Column(DateTime, default=datetime.now)
-    time_out = Column(DateTime, default=None)
+    _time_in = Column("time_in", DateTime, default=datetime.now)
+    _time_out = Column("time_out", DateTime, default=None)
     time_span = Column(Integer, default=0)
 
     journal_entries = relationship("Journal", lazy="joined")
     job = relationship("Job", lazy="joined")
 
+    @property
+    def time_in(self):
+        return self._time_in
+
+    @time_in.setter
+    def time_in(self, time_in: datetime):
+        self._time_in = datetime(
+            time_in.year, time_in.month, time_in.day, time_in.hour, time_in.minute
+        )
+
+    @property
+    def time_out(self):
+        return self._time_in
+
+    @time_out.setter
+    def time_out(self, time_out: datetime):
+        self._time_in = datetime(
+            time_out.year, time_out.month, time_out.day, time_out.hour, time_out.minute
+        )
+
     def __init__(
         self,
+        job_id: int,
+        user_id: int,
         id: int = None,
-        job_id: int = None,
         date_key: int = None,
         week_key: int = None,
         month_key: int = None,
@@ -230,6 +299,8 @@ class Clok(Model, SurrogatePK, SpanQuery):
         **kwargs,
     ):
         self.id = id
+        self.user_id = user_id
+        self.job_id = job_id
         self.date_key = date_key
         self.week_key = week_key
         self.month_key = month_key
@@ -239,10 +310,6 @@ class Clok(Model, SurrogatePK, SpanQuery):
             self.time_span = time_span
         if journal_msg is not None:
             self.add_journal(journal_msg)
-        if job_id is not None:
-            self.job_id = job_id
-        else:
-            self.job_id = State.get().job.id
 
     @property
     def to_dict(self):
@@ -316,7 +383,7 @@ class Clok(Model, SurrogatePK, SpanQuery):
             return None
 
 
-class Journal(Model, SurrogatePK, Tracked, SpanQuery):
+class Journal(Model, SurrogatePK, Tracked):
     __tablename__ = "time_clok_journal"
 
     __table_args__ = (UniqueConstraint("id", "time", name="natural"),)
@@ -346,14 +413,14 @@ class Journal(Model, SurrogatePK, Tracked, SpanQuery):
         return dict(time=self.time, entry=self.entry, id=self.id)
 
     def __repr__(self):
-        return _journal_format_row(self.id, self.entry)
+        return self._journal_format_row(self.id, self.entry)
 
     def __str__(self):
         return self.__repr__()
 
-
-def _journal_format_row(journal_id, journal_entry) -> str:
-    return f"    - ID: {journal_id:<6} {journal_entry:<64}"  # 80 - ( 6 + 10)
+    @staticmethod
+    def _journal_format_row(journal_id, journal_entry) -> str:
+        return f"    - ID: {journal_id:<6} {journal_entry:<64}"  # 80 - ( 6 + 10)
 
 
 def clock_row_header():

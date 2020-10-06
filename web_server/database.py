@@ -15,7 +15,7 @@ from core.defines import DATABASE_FILE
 
 # if this is not set to a filename then it will default to an in memory db by passing
 # true to the sqlite_db keyword.
-DB = SqlAlchemyConnGenerator(sqlite_db=DATABASE_FILE)
+DB = SqlAlchemyConnGenerator()
 
 BaseModel = declarative_base()
 
