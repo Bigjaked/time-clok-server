@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from web_server.extensions import token_manager, password_hasher
+from web_server.extensions import token_manager, password_hasher, login_manager
 from web_server.database import DB
 from web_server.routes import auth, clok, job, user
 
@@ -9,6 +9,7 @@ def create_app(config) -> FastAPI:
     DB.init_app(cfg)
     token_manager.init_app(cfg)
     password_hasher.init_app(cfg)
+
     tags_metadata = [
         {"name": "Users", "description": "API endpoints that manage user",},
         {

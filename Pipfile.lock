@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "af0f8749e619f8d022ab653446df251c41a35747b8bb88e45833bf9b63a4a816"
+            "sha256": "1599a59e02623c7b79b55c1f6281a2989fa59aecb4a3df6348e3549d406f0f8e"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -32,6 +32,14 @@
             "index": "pypi",
             "version": "==0.61.1"
         },
+        "fastapi-login": {
+            "hashes": [
+                "sha256:7b205eee3a7faeca49a061bcaf60bcf6862f550f4686a5a39c6dbe1652010411",
+                "sha256:d88fb2ee2b4edc86cfa8bd52a81b45cb0fac25cfc5e61046d45a1e748fcebea5"
+            ],
+            "index": "pypi",
+            "version": "==1.5.1"
+        },
         "h11": {
             "hashes": [
                 "sha256:3c6c61d69c6f13d41f1b80ab0322f1872702a3ba26e12aa864c928f6a43fbaab",
@@ -46,6 +54,13 @@
             ],
             "index": "pypi",
             "version": "==1.1.0"
+        },
+        "passlib": {
+            "hashes": [
+                "sha256:0fe8b86a900b2885fed00cf5e96f040c7abd61496d65dec4c814e462f8499d8a",
+                "sha256:a203263a2dbb97f3103603c780dce7a7253722951c717b424ed8cd7c72587ae1"
+            ],
+            "version": "==1.7.3"
         },
         "pydantic": {
             "hashes": [
@@ -69,6 +84,13 @@
             ],
             "index": "pypi",
             "version": "==1.6.1"
+        },
+        "pyjwt": {
+            "hashes": [
+                "sha256:5c6eca3c2940464d106b99ba83b00c6add741c9becaec087fb7ccdefea71350e",
+                "sha256:8d59a976fb773f3e6a39c85636357c4f0e242707394cadadd9814f5cbaa20e96"
+            ],
+            "version": "==1.7.1"
         },
         "sqlalchemy": {
             "hashes": [

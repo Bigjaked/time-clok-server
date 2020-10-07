@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
-from itsdangerous.exc import Ba
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import logging

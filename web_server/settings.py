@@ -31,3 +31,5 @@ class BaseSettings(Base):
     # Declare this variable to override the database connection pool class
     # DATABASE_POOL_TYPE: object = QueuePool
     DATABASE_ECHO: bool = False
+
+settings = BaseSettings()
